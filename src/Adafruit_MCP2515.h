@@ -33,12 +33,8 @@ public:
   using CANControllerClass::filterExtended;
   virtual int filterExtended(long id, long mask);
 
-  int setStandardFilters(const uint16_t* ids, size_t count,
-                         uint16_t mask0 = 0x7FF, uint16_t mask1 = 0x7FF,
-                         bool rollover = true);
-  int setExtendedFilters(const uint32_t* ids, size_t count,
-                         uint32_t mask0 = 0x1FFFFFFF, uint32_t mask1 = 0x1FFFFFFF,
-                         bool rollover = true);
+  int setFilterMask(uint8_t maskIndex, bool extended, uint32_t mask);
+  int setFilter(uint8_t filterIndex, bool extended, uint32_t id);
 
   virtual int observe();
   virtual int loopback();

@@ -353,77 +353,68 @@ int Adafruit_MCP2515::filterExtended(long id, long mask) {
   return 1;
 }
 
-int Adafruit_MCP2515::setStandardFilters(const uint16_t* ids, size_t count,
-                                         uint16_t mask0, uint16_t mask1,
-                                         bool rollover) {
-  // Enter Configuration mode
-  writeRegister(REG_CANCTRL, 0x80);
-  if (readRegister(REG_CANCTRL) != 0x80) return 0;
-
-  // Program masks: RXM0 (bank 0: RXF0/1), RXM1 (bank 1: RXF2..RXF5)
-  writeStdIdRegs(this, REG_RXMnSIDH(0), mask0);
-  writeStdIdRegs(this, REG_RXMnSIDH(1), mask1);
-
-  // Install up to 6 filters
-  size_t n = (count > 6) ? 6 : count;
-  for (size_t i = 0; i < n; ++i) {
-    writeStdIdRegs(this, REG_RXFnSIDH(i), ids[i]);
+// In Adafruit_MCP2515.cpp
+static void encodeId(bool extended, uint32_t id,
+                     uint8_t &SIDH, uint8_t &SIDL, uint8_t &EID8, uint8_t &EID0) {
+  if (extended) {
+    SIDH = (id >> 21) & 0xFF;
+    SIDL = (((id >> 18) & 0x07) << 5) | 0x08 | ((id >> 16) & 0x03); // EXIDE=1
+    EID8 = (id >> 8) & 0xFF;
+    EID0 = id & 0xFF;
+  } else {
+    SIDH = (id >> 3) & 0xFF;
+    SIDL = (id & 0x07) << 5;     // EXIDE=0
+    EID8 = 0;
+    EID0 = 0;
   }
-
-  // Fill unused with an ID that won't match under exact mask (harmless)
-  for (size_t i = n; i < 6; ++i) {
-    writeStdIdRegs(this, REG_RXFnSIDH(i), 0x7FE);
-  }
-
-  // RX buffer control: filter+mask mode (RXM=00), optional rollover (BUKT)
-  uint8_t rxb0 = rollover ? 0x04 : 0x00; // BUKT=bit2
-  writeRegister(REG_RXBnCTRL(0), rxb0);
-  writeRegister(REG_RXBnCTRL(1), 0x00);
-
-  // Return to Normal mode
-  writeRegister(REG_CANCTRL, 0x00);
-  if (readRegister(REG_CANCTRL) != 0x00) return 0;
-
-  return (int)n;
 }
 
-int Adafruit_MCP2515::setExtendedFilters(const uint32_t* ids, size_t count,
-                                         uint32_t mask0, uint32_t mask1,
-                                         bool rollover) {
-  // Enter Configuration mode
+int Adafruit_MCP2515::setFilterMask(uint8_t maskIndex, bool extended, uint32_t mask) {
+  mask &= extended ? 0x1FFFFFFF : 0x7FF;
+
+  // config mode
   writeRegister(REG_CANCTRL, 0x80);
   if (readRegister(REG_CANCTRL) != 0x80) return 0;
 
-  // Program masks for 29-bit IDs (EXIDE is controlled in filters, not masks)
-  writeRegister(REG_RXMnSIDH(0), (mask0 >> 21) & 0xFF);
-  writeRegister(REG_RXMnSIDL(0), (((mask0 >> 18) & 0x03) << 5) | 0x08 | ((mask0 >> 16) & 0x03));
-  writeRegister(REG_RXMnEID8(0), (mask0 >> 8) & 0xFF);
-  writeRegister(REG_RXMnEID0(0), mask0 & 0xFF);
-
-  writeRegister(REG_RXMnSIDH(1), (mask1 >> 21) & 0xFF);
-  writeRegister(REG_RXMnSIDL(1), (((mask1 >> 18) & 0x03) << 5) | 0x08 | ((mask1 >> 16) & 0x03));
-  writeRegister(REG_RXMnEID8(1), (mask1 >> 8) & 0xFF);
-  writeRegister(REG_RXMnEID0(1), mask1 & 0xFF);
-
-  // Install up to 6 extended filters (EXIDE=1 per filter)
-  size_t n = (count > 6) ? 6 : count;
-  for (size_t i = 0; i < n; ++i) {
-    writeExtIdRegs(this, REG_RXFnSIDH(i), ids[i]);
-  }
-  for (size_t i = n; i < 6; ++i) {
-    writeExtIdRegs(this, REG_RXFnSIDH(i), 0x1FFFFFFE);
-  }
-
-  // RX buffer control: filter+mask mode, optional rollover
-  uint8_t rxb0 = rollover ? 0x04 : 0x00;
-  writeRegister(REG_RXBnCTRL(0), rxb0);
+  // ensure RXM bits = 00 so filters are used
+  writeRegister(REG_RXBnCTRL(0), 0x00);
   writeRegister(REG_RXBnCTRL(1), 0x00);
 
-  // Back to Normal mode
-  writeRegister(REG_CANCTRL, 0x00);
-  if (readRegister(REG_CANCTRL) != 0x00) return 0;
+  uint8_t SIDH, SIDL, EID8, EID0;
+  encodeId(extended, mask, SIDH, SIDL, EID8, EID0);
 
-  return (int)n;
+  writeRegister(REG_RXMnSIDH(maskIndex), SIDH);
+  writeRegister(REG_RXMnSIDL(maskIndex), SIDL);
+  writeRegister(REG_RXMnEID8(maskIndex), EID8);
+  writeRegister(REG_RXMnEID0(maskIndex), EID0);
+
+  // normal mode
+  writeRegister(REG_CANCTRL, 0x00);
+  return readRegister(REG_CANCTRL) == 0x00;
+}
+
+int Adafruit_MCP2515::setFilter(uint8_t filterIndex, bool extended, uint32_t id) {
+  id &= extended ? 0x1FFFFFFF : 0x7FF;
+
+  // config mode
+  writeRegister(REG_CANCTRL, 0x80);
+  if (readRegister(REG_CANCTRL) != 0x80) return 0;
+
+  // ensure RXM bits = 00
+  writeRegister(REG_RXBnCTRL(0), 0x00);
+  writeRegister(REG_RXBnCTRL(1), 0x00);
+
+  uint8_t SIDH, SIDL, EID8, EID0;
+  encodeId(extended, id, SIDH, SIDL, EID8, EID0);
+
+  writeRegister(REG_RXFnSIDH(filterIndex), SIDH);
+  writeRegister(REG_RXFnSIDL(filterIndex), SIDL);
+  writeRegister(REG_RXFnEID8(filterIndex), EID8);
+  writeRegister(REG_RXFnEID0(filterIndex), EID0);
+
+  // normal mode
+  writeRegister(REG_CANCTRL, 0x00);
+  return readRegister(REG_CANCTRL) == 0x00;
 }
 
 int Adafruit_MCP2515::observe() {
