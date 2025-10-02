@@ -33,6 +33,13 @@ public:
   using CANControllerClass::filterExtended;
   virtual int filterExtended(long id, long mask);
 
+  int setStandardFilters(const uint16_t* ids, size_t count,
+                         uint16_t mask0 = 0x7FF, uint16_t mask1 = 0x7FF,
+                         bool rollover = true);
+  int setExtendedFilters(const uint32_t* ids, size_t count,
+                         uint32_t mask0 = 0x1FFFFFFF, uint32_t mask1 = 0x1FFFFFFF,
+                         bool rollover = true);
+
   virtual int observe();
   virtual int loopback();
   virtual int sleep();
@@ -50,6 +57,9 @@ private:
   uint8_t readRegister(uint8_t address);
   void modifyRegister(uint8_t address, uint8_t mask, uint8_t value);
   void writeRegister(uint8_t address, uint8_t value);
+
+  void writeStdIdRegs(Adafruit_MCP2515* self, uint8_t base, uint16_t id);
+  void writeExtIdRegs(Adafruit_MCP2515* self, uint8_t base, uint32_t id);
 
   static Adafruit_MCP2515 *instance;
   static void onInterrupt();

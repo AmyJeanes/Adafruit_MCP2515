@@ -353,6 +353,79 @@ int Adafruit_MCP2515::filterExtended(long id, long mask) {
   return 1;
 }
 
+int Adafruit_MCP2515::setStandardFilters(const uint16_t* ids, size_t count,
+                                         uint16_t mask0, uint16_t mask1,
+                                         bool rollover) {
+  // Enter Configuration mode
+  writeRegister(REG_CANCTRL, 0x80);
+  if (readRegister(REG_CANCTRL) != 0x80) return 0;
+
+  // Program masks: RXM0 (bank 0: RXF0/1), RXM1 (bank 1: RXF2..RXF5)
+  writeStdIdRegs(this, REG_RXMnSIDH(0), mask0);
+  writeStdIdRegs(this, REG_RXMnSIDH(1), mask1);
+
+  // Install up to 6 filters
+  size_t n = (count > 6) ? 6 : count;
+  for (size_t i = 0; i < n; ++i) {
+    writeStdIdRegs(this, REG_RXFnSIDH(i), ids[i]);
+  }
+
+  // Fill unused with an ID that won't match under exact mask (harmless)
+  for (size_t i = n; i < 6; ++i) {
+    writeStdIdRegs(this, REG_RXFnSIDH(i), 0x7FE);
+  }
+
+  // RX buffer control: filter+mask mode (RXM=00), optional rollover (BUKT)
+  uint8_t rxb0 = rollover ? 0x04 : 0x00; // BUKT=bit2
+  writeRegister(REG_RXBnCTRL(0), rxb0);
+  writeRegister(REG_RXBnCTRL(1), 0x00);
+
+  // Return to Normal mode
+  writeRegister(REG_CANCTRL, 0x00);
+  if (readRegister(REG_CANCTRL) != 0x00) return 0;
+
+  return (int)n;
+}
+
+int Adafruit_MCP2515::setExtendedFilters(const uint32_t* ids, size_t count,
+                                         uint32_t mask0, uint32_t mask1,
+                                         bool rollover) {
+  // Enter Configuration mode
+  writeRegister(REG_CANCTRL, 0x80);
+  if (readRegister(REG_CANCTRL) != 0x80) return 0;
+
+  // Program masks for 29-bit IDs (EXIDE is controlled in filters, not masks)
+  writeRegister(REG_RXMnSIDH(0), (mask0 >> 21) & 0xFF);
+  writeRegister(REG_RXMnSIDL(0), (((mask0 >> 18) & 0x03) << 5) | 0x08 | ((mask0 >> 16) & 0x03));
+  writeRegister(REG_RXMnEID8(0), (mask0 >> 8) & 0xFF);
+  writeRegister(REG_RXMnEID0(0), mask0 & 0xFF);
+
+  writeRegister(REG_RXMnSIDH(1), (mask1 >> 21) & 0xFF);
+  writeRegister(REG_RXMnSIDL(1), (((mask1 >> 18) & 0x03) << 5) | 0x08 | ((mask1 >> 16) & 0x03));
+  writeRegister(REG_RXMnEID8(1), (mask1 >> 8) & 0xFF);
+  writeRegister(REG_RXMnEID0(1), mask1 & 0xFF);
+
+  // Install up to 6 extended filters (EXIDE=1 per filter)
+  size_t n = (count > 6) ? 6 : count;
+  for (size_t i = 0; i < n; ++i) {
+    writeExtIdRegs(this, REG_RXFnSIDH(i), ids[i]);
+  }
+  for (size_t i = n; i < 6; ++i) {
+    writeExtIdRegs(this, REG_RXFnSIDH(i), 0x1FFFFFFE);
+  }
+
+  // RX buffer control: filter+mask mode, optional rollover
+  uint8_t rxb0 = rollover ? 0x04 : 0x00;
+  writeRegister(REG_RXBnCTRL(0), rxb0);
+  writeRegister(REG_RXBnCTRL(1), 0x00);
+
+  // Back to Normal mode
+  writeRegister(REG_CANCTRL, 0x00);
+  if (readRegister(REG_CANCTRL) != 0x00) return 0;
+
+  return (int)n;
+}
+
 int Adafruit_MCP2515::observe() {
   writeRegister(REG_CANCTRL, 0x80);
   if (readRegister(REG_CANCTRL) != 0x80) {
@@ -442,6 +515,26 @@ void Adafruit_MCP2515::modifyRegister(uint8_t address, uint8_t mask,
 void Adafruit_MCP2515::writeRegister(uint8_t address, uint8_t value) {
   uint8_t buffer[3] = {0x02, address, value};
   spi_dev->write(buffer, 3);
+}
+
+void Adafruit_MCP2515::writeStdIdRegs(Adafruit_MCP2515* self, uint8_t base, uint16_t id) {
+  id &= 0x7FF;
+  self->writeRegister(base + 0, id >> 3);           // SIDH
+  self->writeRegister(base + 1, (id & 0x07) << 5);  // SIDL (IDE=0)
+  self->writeRegister(base + 2, 0x00);              // EID8
+  self->writeRegister(base + 3, 0x00);              // EID0
+}
+
+void Adafruit_MCP2515::writeExtIdRegs(Adafruit_MCP2515* self, uint8_t base, uint32_t id) {
+  id &= 0x1FFFFFFF;
+  uint8_t sidh = (id >> 21) & 0xFF;
+  uint8_t sidl = (((id >> 18) & 0x07) << 5) | 0x08 /*EXIDE*/ | ((id >> 16) & 0x03);
+  uint8_t eid8 = (id >> 8) & 0xFF;
+  uint8_t eid0 = id & 0xFF;
+  self->writeRegister(base + 0, sidh);
+  self->writeRegister(base + 1, sidl);
+  self->writeRegister(base + 2, eid8);
+  self->writeRegister(base + 3, eid0);
 }
 
 void Adafruit_MCP2515::onInterrupt() { instance->handleInterrupt(); }
