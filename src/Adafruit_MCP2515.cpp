@@ -289,8 +289,8 @@ int Adafruit_MCP2515::filter(int id, int mask) {
 
   for (int n = 0; n < 2; n++) {
     // standard only
-    writeRegister(REG_RXBnCTRL(n), FLAG_RXM0);
-    writeRegister(REG_RXBnCTRL(n), FLAG_RXM0);
+    writeRegister(REG_RXBnCTRL(n), 0x00);
+    writeRegister(REG_RXBnCTRL(n), 0x00);
 
     writeRegister(REG_RXMnSIDH(n), mask >> 3);
     writeRegister(REG_RXMnSIDL(n), mask << 5);
@@ -326,8 +326,8 @@ int Adafruit_MCP2515::filterExtended(long id, long mask) {
 
   for (int n = 0; n < 2; n++) {
     // extended only
-    writeRegister(REG_RXBnCTRL(n), FLAG_RXM1);
-    writeRegister(REG_RXBnCTRL(n), FLAG_RXM1);
+    writeRegister(REG_RXBnCTRL(n), 0x00);
+    writeRegister(REG_RXBnCTRL(n), 0x00);
 
     writeRegister(REG_RXMnSIDH(n), mask >> 21);
     writeRegister(REG_RXMnSIDL(n), (((mask >> 18) & 0x03) << 5) | FLAG_EXIDE |
